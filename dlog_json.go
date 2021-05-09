@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/dajinkuang/util"
-	utilGls "github.com/dajinkuang/util/gls"
+	"github.com/dajinkuang/util/glsutil"
+	"github.com/dajinkuang/util/iputil"
 	"io"
 	"path"
 	"runtime"
@@ -113,9 +113,9 @@ func (p *dJsonLog) logJson(v Lvl, kv ...interface{}) (err error) {
 	om.Set("cur_unix_time", now.Unix())
 	om.Set("file", file)
 	om.Set("line", line)
-	localMachineIPV4, _ := util.LocalMachineIPV4()
+	localMachineIPV4, _ := iputil.LocalMachineIPV4()
 	om.Set("local_machine_ipv4", localMachineIPV4)
-	ctx, ctxIsDefault := utilGls.GlsContext()
+	ctx, ctxIsDefault := glsutil.GlsContext()
 	if !ctxIsDefault {
 		om.Set(TraceID, ValueFromOM(ctx, TraceID))
 		om.Set(SpanID, ValueFromOM(ctx, SpanID))
@@ -123,7 +123,7 @@ func (p *dJsonLog) logJson(v Lvl, kv ...interface{}) (err error) {
 		om.Set(UserRequestIP, ValueFromOM(ctx, UserRequestIP))
 		om.AddVals(FromContext(ctx))
 	} else {
-		traceID, pSpanID, spanID := utilGls.GetOpenTracingFromGls()
+		traceID, pSpanID, spanID := glsutil.GetOpenTracingFromGls()
 		om.Set(TraceID, traceID)
 		om.Set(SpanID, spanID)
 		om.Set(ParentID, pSpanID)

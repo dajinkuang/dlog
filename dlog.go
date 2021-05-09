@@ -2,8 +2,8 @@ package dlog
 
 import (
 	"fmt"
-	"github.com/dajinkuang/util"
-	gls2 "github.com/dajinkuang/util/gls"
+	"github.com/dajinkuang/util/glsutil"
+	"github.com/dajinkuang/util/iputil"
 	"io"
 	"path"
 	"runtime"
@@ -50,8 +50,8 @@ func NewDLog(w io.WriteCloser, topic string) *dLog {
 func (p *dLog) logStr(kv ...interface{}) string {
 	_, file, line, _ := runtime.Caller(3)
 	file = p.getFilePath(file)
-	localMachineIPV4, _ := util.LocalMachineIPV4()
-	ctx, _ := gls2.GlsContext()
+	localMachineIPV4, _ := iputil.LocalMachineIPV4()
+	ctx, _ := glsutil.GlsContext()
 	pre := []interface{}{"local_machine_ipv4", localMachineIPV4, TraceID, ValueFromOM(ctx, TraceID),
 		SpanID, ValueFromOM(ctx, SpanID), ParentID, ValueFromOM(ctx, ParentID), UserRequestIP, ValueFromOM(ctx, UserRequestIP)}
 	kv = append(pre, kv...)
