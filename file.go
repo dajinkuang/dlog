@@ -11,13 +11,13 @@ import (
 )
 
 const (
-	bufferSize = 256 * 1024
-
+	bufferSize    = 256 * 1024
 	flushDuration = time.Second * 5
 )
 
 var _ io.WriteCloser = &FileBackend{}
 
+// FileBackend 日志文件读写
 type FileBackend struct {
 	mu            sync.Mutex
 	file          *os.File
@@ -30,6 +30,7 @@ type FileBackend struct {
 	closeCh       chan struct{}
 }
 
+// Write 写操作
 func (p *FileBackend) Write(b []byte) (n int, err error) {
 	p.mustFileExist()
 	p.mu.Lock()
@@ -37,12 +38,14 @@ func (p *FileBackend) Write(b []byte) (n int, err error) {
 	return p.buffer.Write(b)
 }
 
+// Flush 刷到磁盘
 func (p *FileBackend) Flush() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.buffer.Flush()
 }
 
+// Close 关闭文件读写
 func (p *FileBackend) Close() error {
 	close(p.closeCh)
 	p.mu.Lock()
@@ -75,6 +78,10 @@ func (p *FileBackend) monitorFiles() {
 	}
 }
 
+func getLastCheck(now time.Time) uint64 {
+	return uint64(now.Year())*1000000 + uint64(now.Month())*10000 + uint64(now.Day())*100 + uint64(now.Hour())
+}
+
 func (p *FileBackend) flushFile() {
 	ticker := time.NewTicker(p.flushDuration)
 	for {
@@ -104,9 +111,9 @@ func (p *FileBackend) mustFileExist() {
 	p.buffer.Reset(p.file)
 	p.filePath = filePath
 	p.mu.Unlock()
-
 }
 
+// NewFileBackend 新建一个FileBackend
 func NewFileBackend(dir, name string) (*FileBackend, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
@@ -118,13 +125,6 @@ func NewFileBackend(dir, name string) (*FileBackend, error) {
 	fb.flushDuration = flushDuration
 	fb.closeCh = make(chan struct{})
 	fb.mustFileExist()
-
-	// default
-	// go fb.monitorFiles()
 	go fb.flushFile()
 	return fb, nil
-}
-
-func getLastCheck(now time.Time) uint64 {
-	return uint64(now.Year())*1000000 + uint64(now.Month())*10000 + uint64(now.Day())*100 + uint64(now.Hour())
 }

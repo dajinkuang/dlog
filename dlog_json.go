@@ -5,21 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/dajinkuang/util/glsutil"
-	"github.com/dajinkuang/util/iputil"
+	"github.com/dajinkuang/util/ordermaputil"
 	"io"
 	"path"
 	"runtime"
 	"time"
 
+	"github.com/dajinkuang/util/iputil"
 	"github.com/labstack/gommon/color"
 )
 
-// 在main中修改
+// SetTopic 设置日志Topic，在main中修改
 func SetTopic(topic string, absolutePath string) {
-	// 考虑重入
-	if _dJsonLog != nil {
-		_dJsonLog.Close()
-		__dJsonLogErrorAbove.Close()
+	if _dLogJSON != nil {
+		_dLogJSON.Close()
+		_dLogJSONError.Close()
 	}
 	dir := "/tmp/go/log"
 	if len(absolutePath) > 0 {
@@ -29,65 +29,70 @@ func SetTopic(topic string, absolutePath string) {
 	if err != nil {
 		panic(err)
 	}
-	_dJsonLog = NewDJsonLog(file, topic)
-	SetLogger(_dJsonLog)
-
-	fileErrorAbove, err := NewFileBackend(dir, topic+".log_json_error_above")
+	_dLogJSON = NewDLogJSON(file, topic)
+	SetLogger(_dLogJSON)
+	fileErrorAbove, err := NewFileBackend(dir, topic+".log_json_error")
 	if err != nil {
 		panic(err)
 	}
-	__dJsonLogErrorAbove = NewDJsonLog(fileErrorAbove, topic)
-	SetLoggerErrorAbove(__dJsonLogErrorAbove)
+	_dLogJSONError = NewDLogJSON(fileErrorAbove, topic)
+	SetLoggerError(_dLogJSONError)
 }
 
-var _dJsonLog *dJsonLog
+// _dLogJSON 可以打印任何级别的日志
+var _dLogJSON *dLogJSON
 
-// 只打印 ERROR FATAL 日志
-var __dJsonLogErrorAbove *dJsonLog
+// _dLogJSONError 只打印 ERROR FATAL 日志
+var _dLogJSONError *dLogJSON
 
-func GetJsonDLog() *dJsonLog {
-	if _dJsonLog == nil {
+// GetDLogJSON 获取到 dLogJSON
+func GetDLogJSON() *dLogJSON {
+	if _dLogJSON == nil {
 		SetTopic(defaultTopic, "")
 	}
-	return _dJsonLog
+	return _dLogJSON
 }
 
-func GetJsonDLogErrorAbove() *dJsonLog {
-	if __dJsonLogErrorAbove == nil {
+// GetDLogJSONError 获取到 _dLogJSONError
+func GetDLogJSONError() *dLogJSON {
+	if _dLogJSONError == nil {
 		SetTopic(defaultTopic, "")
 	}
-	return __dJsonLogErrorAbove
+	return _dLogJSONError
 }
 
-type dJsonLog struct {
+// dLogJSON dLog json 格式日志实现
+type dLogJSON struct {
 	prefix string
 	level  Lvl
 	output io.Writer
 	levels []string
 	color  *color.Color
-	dw     *dlogWriter
+	dw     *dLogWriter
 }
 
-func NewDJsonLog(w io.WriteCloser, topic string) *dJsonLog {
+// NewDLogJSON 新建一个dLogJSON
+func NewDLogJSON(w io.WriteCloser, topic string) *dLogJSON {
 	if len(topic) <= 0 {
 		topic = defaultTopic
 	}
-	l := &dJsonLog{
+	l := &dLogJSON{
 		level:  INFO,
 		prefix: topic,
 		color:  color.New(),
 	}
 	l.initLevels()
-	l.dw = NewDlogWriter(w)
+	l.dw = NewDLogWriter(w)
 	l.SetOutput(l.dw)
 	l.SetLevel(INFO)
 	return l
 }
 
-func (p *dJsonLog) With(ctx context.Context, kv ...interface{}) context.Context {
+// With 向context中设置kv
+func (dl *dLogJSON) With(ctx context.Context, kv ...interface{}) context.Context {
 	om := FromContext(ctx)
 	if om == nil {
-		om = NewOrderMap()
+		om = ordermaputil.NewOrderMap()
 	}
 	if len(kv)%2 != 0 {
 		kv = append(kv, "unknown")
@@ -98,16 +103,16 @@ func (p *dJsonLog) With(ctx context.Context, kv ...interface{}) context.Context 
 	return setContext(ctx, om)
 }
 
-// kv 应该是成对的 数据, 类似: name,张三,age,10,...
-func (p *dJsonLog) logJson(v Lvl, kv ...interface{}) (err error) {
-	if v < p.level {
+// logJSON 打印json格式的日志。kv 应该是成对的 数据, 类似: name,张三,age,10,...
+func (dl *dLogJSON) logJSON(ctxExternal context.Context, v Lvl, kv ...interface{}) (err error) {
+	if v < dl.level {
 		return nil
 	}
-	om := NewOrderMap()
+	om := ordermaputil.NewOrderMap()
 	_, file, line, _ := runtime.Caller(3)
-	file = p.getFilePath(file)
-	om.Set("dlog_prefix", p.Prefix())
-	om.Set("level", p.levels[v])
+	file = dl.getFilePath(file)
+	om.Set("dlog_prefix", dl.Prefix())
+	om.Set("level", dl.levels[v])
 	now := time.Now()
 	om.Set("cur_time", now.Format(time.RFC3339Nano))
 	om.Set("cur_unix_time", now.Unix())
@@ -115,18 +120,26 @@ func (p *dJsonLog) logJson(v Lvl, kv ...interface{}) (err error) {
 	om.Set("line", line)
 	localMachineIPV4, _ := iputil.LocalMachineIPV4()
 	om.Set("local_machine_ipv4", localMachineIPV4)
-	ctx, ctxIsDefault := glsutil.GlsContext()
-	if !ctxIsDefault {
-		om.Set(TraceID, ValueFromOM(ctx, TraceID))
-		om.Set(SpanID, ValueFromOM(ctx, SpanID))
-		om.Set(ParentID, ValueFromOM(ctx, ParentID))
-		om.Set(UserRequestIP, ValueFromOM(ctx, UserRequestIP))
-		om.AddVals(FromContext(ctx))
+	if ctxExternal == nil {
+		ctxGls, ctxIsDefault := glsutil.GlsContext()
+		if !ctxIsDefault {
+			om.Set(TraceID, ValueFromOM(ctxGls, TraceID))
+			om.Set(SpanID, ValueFromOM(ctxGls, SpanID))
+			om.Set(ParentID, ValueFromOM(ctxGls, ParentID))
+			om.Set(UserRequestIP, ValueFromOM(ctxGls, UserRequestIP))
+			om.AddValues(FromContext(ctxGls))
+		} else {
+			traceID, pSpanID, spanID := glsutil.GetOpenTracingFromGls()
+			om.Set(TraceID, traceID)
+			om.Set(SpanID, spanID)
+			om.Set(ParentID, pSpanID)
+		}
 	} else {
-		traceID, pSpanID, spanID := glsutil.GetOpenTracingFromGls()
-		om.Set(TraceID, traceID)
-		om.Set(SpanID, spanID)
-		om.Set(ParentID, pSpanID)
+		om.Set(TraceID, ValueFromOM(ctxExternal, TraceID))
+		om.Set(SpanID, ValueFromOM(ctxExternal, SpanID))
+		om.Set(ParentID, ValueFromOM(ctxExternal, ParentID))
+		om.Set(UserRequestIP, ValueFromOM(ctxExternal, UserRequestIP))
+		om.AddValues(FromContext(ctxExternal))
 	}
 	if len(kv)%2 != 0 {
 		kv = append(kv, "unknown")
@@ -136,48 +149,80 @@ func (p *dJsonLog) logJson(v Lvl, kv ...interface{}) (err error) {
 	}
 	str, _ := json.Marshal(om)
 	str = append(str, []byte("\n")...)
-	_, err = p.Output().Write(str)
+	_, err = dl.Output().Write(str)
 	return
 }
 
-func (p *dJsonLog) Debug(kv ...interface{}) {
-	p.logJson(DEBUG, kv...)
+// Debug 打印debug日志
+func (dl *dLogJSON) Debug(kv ...interface{}) {
+	dl.logJSON(nil, DEBUG, kv...)
 }
 
-func (p *dJsonLog) Info(kv ...interface{}) {
-	p.logJson(INFO, kv...)
+// Info 打印info日志
+func (dl *dLogJSON) Info(kv ...interface{}) {
+	dl.logJSON(nil, INFO, kv...)
 }
 
-func (p *dJsonLog) Warn(kv ...interface{}) {
-	p.logJson(WARN, kv...)
+// Warn 打印warn日志
+func (dl *dLogJSON) Warn(kv ...interface{}) {
+	dl.logJSON(nil, WARN, kv...)
 }
 
-func (p *dJsonLog) Error(kv ...interface{}) {
-	p.logJson(ERROR, kv...)
+// Error 打印error日志
+func (dl *dLogJSON) Error(kv ...interface{}) {
+	dl.logJSON(nil, ERROR, kv...)
 }
 
-func (p *dJsonLog) Fatal(kv ...interface{}) {
-	p.logJson(ERROR, kv...)
+// Fatal 打印fatal日志
+func (dl *dLogJSON) Fatal(kv ...interface{}) {
+	dl.logJSON(nil, ERROR, kv...)
 }
 
-func (p *dJsonLog) getFilePath(file string) string {
+// DebugContext 打印debug日志 context
+func (dl *dLogJSON) DebugContext(ctx context.Context, kv ...interface{}) {
+	dl.logJSON(ctx, DEBUG, kv...)
+}
+
+// InfoContext 打印info日志 context
+func (dl *dLogJSON) InfoContext(ctx context.Context, kv ...interface{}) {
+	dl.logJSON(ctx, INFO, kv...)
+}
+
+// WarnContext 打印warn日志 context
+func (dl *dLogJSON) WarnContext(ctx context.Context, kv ...interface{}) {
+	dl.logJSON(ctx, WARN, kv...)
+}
+
+// ErrorContext 打印error日志 context
+func (dl *dLogJSON) ErrorContext(ctx context.Context, kv ...interface{}) {
+	dl.logJSON(ctx, ERROR, kv...)
+}
+
+// FatalContext 打印fatal日志 context
+func (dl *dLogJSON) FatalContext(ctx context.Context, kv ...interface{}) {
+	dl.logJSON(ctx, ERROR, kv...)
+}
+
+func (dl *dLogJSON) getFilePath(file string) string {
 	dir, base := path.Dir(file), path.Base(file)
 	return path.Join(path.Base(dir), base)
 }
 
-func (p *dJsonLog) Close() error {
-	if p.dw != nil {
-		p.dw.Close()
-		p.dw = nil
+// Close 关闭日志打印
+func (dl *dLogJSON) Close() error {
+	if dl.dw != nil {
+		dl.dw.Close()
+		dl.dw = nil
 	}
 	return nil
 }
 
-func (p *dJsonLog) EnableDebug(b bool) {
+// EnableDebug 开启debug日志
+func (dl *dLogJSON) EnableDebug(b bool) {
 	if b {
-		p.SetLevel(DEBUG)
+		dl.SetLevel(DEBUG)
 	} else {
-		p.SetLevel(INFO)
+		dl.SetLevel(INFO)
 	}
 }
 
@@ -192,8 +237,8 @@ const (
 	OFF
 )
 
-func (l *dJsonLog) initLevels() {
-	l.levels = []string{
+func (dl *dLogJSON) initLevels() {
+	dl.levels = []string{
 		"-",
 		"DEBUG",
 		"INFO",
@@ -203,30 +248,37 @@ func (l *dJsonLog) initLevels() {
 	}
 }
 
-func (l *dJsonLog) Prefix() string {
-	return l.prefix
+// Prefix 获取日志prefix
+func (dl *dLogJSON) Prefix() string {
+	return dl.prefix
 }
 
-func (l *dJsonLog) SetPrefix(p string) {
-	l.prefix = p
+// SetPrefix 设置日志prefix
+func (dl *dLogJSON) SetPrefix(p string) {
+	dl.prefix = p
 }
 
-func (l *dJsonLog) Level() Lvl {
-	return l.level
+// Level 获取打印日志等级
+func (dl *dLogJSON) Level() Lvl {
+	return dl.level
 }
 
-func (l *dJsonLog) SetLevel(v Lvl) {
-	l.level = v
+// SetLevel 设置打印日志级别
+func (dl *dLogJSON) SetLevel(v Lvl) {
+	dl.level = v
 }
 
-func (l *dJsonLog) Output() io.Writer {
-	return l.output
+// Output 获取writer
+func (dl *dLogJSON) Output() io.Writer {
+	return dl.output
 }
 
-func (l *dJsonLog) SetOutput(w io.Writer) {
-	l.output = w
+// SetOutput 设置writer
+func (dl *dLogJSON) SetOutput(w io.Writer) {
+	dl.output = w
 }
 
-func (l *dJsonLog) Color() *color.Color {
-	return l.color
+// Color 获得颜色
+func (dl *dLogJSON) Color() *color.Color {
+	return dl.color
 }
