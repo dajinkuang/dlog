@@ -53,12 +53,12 @@ func (w dLogWriter) Write(p []byte) (n int, err error) {
 
 // Close 关闭
 func (w dLogWriter) Close() error {
-	os.Stdout.WriteString(time.Now().String() + ",dLogWriter_close(w.closeStartCh)\n")
+	os.Stdout.WriteString(time.Now().String() + ",dLogWriter: close(w.closeStartCh)\n")
 	close(w.closeStartCh)
 	<-w.closeEndCh
-	os.Stdout.WriteString(time.Now().String() + ",dLogWriter_<-w.closeEndCh\n")
+	os.Stdout.WriteString(time.Now().String() + ",dLogWriter: _ <-w.closeEndCh\n")
 	err := w.w.Close()
-	os.Stdout.WriteString(time.Now().String() + ",dLogWriter_w.w.Close()\n")
+	os.Stdout.WriteString(time.Now().String() + ",dLogWriter: w.w.Close()\n")
 	return err
 }
 

@@ -196,7 +196,7 @@ func EnableDebug(b bool) {
 // logJSON 生成日志数据JSON字符串。kv 应该是成对的数据, 类似: name,张三,age,10,...
 func logJSON(v Lvl, kv ...interface{}) string {
 	om := ordermaputil.NewOrderMap()
-	_, file, line, _ := runtime.Caller(3)
+	_, file, line, _ := runtime.Caller(2)
 	file = getFilePath(file)
 	om.Set("dlog_prefix", prefix)
 	om.Set("level", logLevels[v])
